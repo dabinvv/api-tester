@@ -4,58 +4,74 @@ import com.example.apitester.assertion.AssertionEvaluator;
 import com.example.apitester.assertion.JsonPathEvaluator;
 import com.example.apitester.assertion.ResponseTimeEvaluator;
 import com.example.apitester.assertion.StatusCodeEvaluator;
+import com.example.apitester.cli.CliHandler;
+import com.example.apitester.cli.CliOptions;
 import com.example.apitester.client.HttpExecutor;
+import com.example.apitester.exception.CliException;
 import com.example.apitester.exception.TestDefinitionException;
-import com.example.apitester.model.AssertionOutcome;
 import com.example.apitester.model.TestCase;
 import com.example.apitester.model.TestResult;
+import com.example.apitester.report.ConsoleReporter;
 import com.example.apitester.repository.JsonFileTestCaseRepository;
 import com.example.apitester.repository.TestCaseRepository;
 import com.example.apitester.service.TestRunnerService;
 
-import java.nio.file.Path;
 import java.util.List;
 
 public class ApiTesterApplication {
 
+    static final int EXIT_OK = 0;
+    static final int EXIT_TESTS_FAILED = 1;
+    static final int EXIT_USAGE = 2;
+
     public static void main(String[] args) {
-        if (args.length != 1) {
-            System.err.println("Usage: java -jar api-tester.jar <tests.json>");
-            System.exit(2);
+        System.exit(run(args));   // the only System.exit in the program
+    }
+
+    static int run(String[] args) {
+        // 1. Parse arguments
+        CliOptions options;
+        try {
+            options = CliHandler.parse(args);
+        } catch (CliException e) {
+            System.err.println("Error: " + e.getMessage());
+            System.err.println();
+            System.err.println(CliHandler.USAGE);
+            return EXIT_USAGE;
         }
 
-        // 1. Wire dependencies by hand
-        TestCaseRepository repository = new JsonFileTestCaseRepository(Path.of(args[0]));
+        if (options.helpRequested()) {
+            System.out.println(CliHandler.USAGE);
+            return EXIT_OK;
+        }
+
+        // 2. Wire dependencies by hand
+        TestCaseRepository repository = new JsonFileTestCaseRepository(options.file());
         HttpExecutor executor = new HttpExecutor();
         List<AssertionEvaluator> evaluators = List.of(
                 new StatusCodeEvaluator(),
                 new ResponseTimeEvaluator(),
                 new JsonPathEvaluator());
         TestRunnerService service = new TestRunnerService(executor, evaluators);
+        ConsoleReporter reporter = new ConsoleReporter(System.out, options.color());
 
-        // 2. Load
+        // 3. Load
         List<TestCase> testCases;
         try {
             testCases = repository.loadAll();
         } catch (TestDefinitionException e) {
             System.err.println("Invalid test file: " + e.getMessage());
-            System.exit(2);
-            return;
+            return EXIT_USAGE;
         }
 
-        // 3. Run and print (ConsoleReporter replaces this in Phase 5)
+        // 4. Run, report, and translate the outcome into an exit code
+        long start = System.nanoTime();
         List<TestResult> results = service.run(testCases);
-        for (TestResult result : results) {
-            System.out.println((result.passed() ? "[PASS] " : "[FAIL] ") + result.testName());
-            if (result.error() != null) {
-                System.out.println("       ! " + result.error());
-            }
-            for (AssertionOutcome outcome : result.outcomes()) {
-                System.out.println("       " + (outcome.passed() ? "✓ " : "✗ ") + outcome.message());
-            }
-        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
-        long passed = results.stream().filter(TestResult::passed).count();
-        System.out.println("\n" + passed + "/" + results.size() + " tests passed");
+        reporter.print(results, elapsedMs);
+
+        boolean allPassed = results.stream().allMatch(TestResult::passed);
+        return allPassed ? EXIT_OK : EXIT_TESTS_FAILED;
     }
 }
