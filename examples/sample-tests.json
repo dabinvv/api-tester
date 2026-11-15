@@ -1,0 +1,41 @@
+{
+  "baseUrl": "https://jsonplaceholder.typicode.com",
+  "tests": [
+    {
+      "name": "Get user 1",
+      "request": { "method": "GET", "path": "/users/1" },
+      "assertions": [
+        { "type": "STATUS", "expected": 200 },
+        { "type": "JSON_PATH", "path": "$.name", "expected": "Leanne Graham" },
+        { "type": "JSON_PATH", "path": "$.address.city", "expected": "Gwenborough" },
+        { "type": "MAX_TIME_MS", "expected": 3000 }
+      ]
+    },
+    {
+      "name": "Missing user returns 404",
+      "request": { "path": "/users/9999" },
+      "assertions": [
+        { "type": "STATUS", "expected": 404 }
+      ]
+    },
+    {
+      "name": "Create a post",
+      "request": {
+        "method": "POST",
+        "path": "/posts",
+        "body": { "title": "hello", "body": "world", "userId": 1 }
+      },
+      "assertions": [
+        { "type": "STATUS", "expected": 201 },
+        { "type": "JSON_PATH", "path": "$.title", "expected": "hello" }
+      ]
+    },
+    {
+      "name": "Deliberately failing check",
+      "request": { "path": "/users/1" },
+      "assertions": [
+        { "type": "JSON_PATH", "path": "$.name", "expected": "Someone Else" }
+      ]
+    }
+  ]
+}

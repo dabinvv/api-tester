@@ -1,53 +1,47 @@
 package com.example.apitester;
 
 import com.example.apitester.assertion.AssertionEvaluator;
+import com.example.apitester.assertion.JsonPathEvaluator;
 import com.example.apitester.assertion.ResponseTimeEvaluator;
 import com.example.apitester.assertion.StatusCodeEvaluator;
 import com.example.apitester.client.HttpExecutor;
-import com.example.apitester.model.ApiRequest;
-import com.example.apitester.model.Assertion;
+import com.example.apitester.exception.TestDefinitionException;
 import com.example.apitester.model.AssertionOutcome;
-import com.example.apitester.model.AssertionType;
 import com.example.apitester.model.TestCase;
 import com.example.apitester.model.TestResult;
+import com.example.apitester.repository.JsonFileTestCaseRepository;
+import com.example.apitester.repository.TestCaseRepository;
 import com.example.apitester.service.TestRunnerService;
 
+import java.nio.file.Path;
 import java.util.List;
 
 public class ApiTesterApplication {
 
     public static void main(String[] args) {
+        if (args.length != 1) {
+            System.err.println("Usage: java -jar api-tester.jar <tests.json>");
+            System.exit(2);
+        }
+
         // 1. Wire dependencies by hand
+        TestCaseRepository repository = new JsonFileTestCaseRepository(Path.of(args[0]));
         HttpExecutor executor = new HttpExecutor();
         List<AssertionEvaluator> evaluators = List.of(
                 new StatusCodeEvaluator(),
-                new ResponseTimeEvaluator());
+                new ResponseTimeEvaluator(),
+                new JsonPathEvaluator());
         TestRunnerService service = new TestRunnerService(executor, evaluators);
 
-        // 2. Hardcoded test data (replaced by a JSON file in Phase 4)
-        String base = "https://jsonplaceholder.typicode.com";
-        List<TestCase> testCases = List.of(
-                new TestCase("Get user 1 (should pass)",
-                        ApiRequest.get(base + "/users/1"),
-                        List.of(Assertion.of(AssertionType.STATUS, "200"),
-                                Assertion.of(AssertionType.MAX_TIME_MS, "3000"))),
-
-                new TestCase("Missing user returns 404 (should pass)",
-                        ApiRequest.get(base + "/users/9999"),
-                        List.of(Assertion.of(AssertionType.STATUS, "404"))),
-
-                new TestCase("Wrong expectation (should fail)",
-                        ApiRequest.get(base + "/users/1"),
-                        List.of(Assertion.of(AssertionType.STATUS, "201"))),
-
-                new TestCase("Unreachable host (should error)",
-                        ApiRequest.get("https://nonexistent.invalid/users/1"),
-                        List.of(Assertion.of(AssertionType.STATUS, "200"))),
-
-                new TestCase("Malformed URL (should error)",
-                        ApiRequest.get("not a url"),
-                        List.of(Assertion.of(AssertionType.STATUS, "200")))
-        );
+        // 2. Load
+        List<TestCase> testCases;
+        try {
+            testCases = repository.loadAll();
+        } catch (TestDefinitionException e) {
+            System.err.println("Invalid test file: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
 
         // 3. Run and print (ConsoleReporter replaces this in Phase 5)
         List<TestResult> results = service.run(testCases);
